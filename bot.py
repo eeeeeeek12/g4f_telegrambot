@@ -15,14 +15,12 @@ API_token = cfg['g']['api']
 bot = Bot(token=API_token)
 dp = Dispatcher()
 
-# CREATE NEW USER'S CONTEXT FILE (OR CLEAR CONTEXT)
 def newcontext(userID):
     with open(f'contexts\\{userID}.json', 'w', encoding="utf-8") as file:
         standart_context = []
         data = json.dumps(standart_context)
         file.write(data)
 
-# GET USER'S CONTEXT
 def readcontext(userID):
     try:
         with open(f'contexts\\{userID}.json', encoding="utf-8") as file:
@@ -33,7 +31,6 @@ def readcontext(userID):
         newcontext(userID)
         readcontext(userID)
 
-# WRITE NEW MESSAGES TO USER'S CONTEXT
 def writecontext(userID, new_prompt, answer_to_new_prompt):
     try:
         with open(f'contexts//{userID}.json', encoding="utf-8") as file:
@@ -104,7 +101,7 @@ async def text_message(message:types.Message):
                 
             response = g4f.ChatCompletion.create(
                 model=g4f.models.default,
-                provider=g4f.Provider.You,
+                provider=g4f.Provider.Bing,
                 messages=[
                         *CONTEXT,
                         NEW_PROMPT
@@ -112,9 +109,26 @@ async def text_message(message:types.Message):
                 stream=False,
                 web_search=True
                 )
-            
-            abz = response.split('\n\n')
 
+            print(response)
+
+            abz = response.split('\n\n')
+            first_ab = abz[0]
+            if first_ab[:22] == 'Searching the web for:':
+                links_list = first_ab[ first_ab.find('[') : ].split('\n')
+                links = {}
+                for i in links_list:
+                    dig = i[1:2]
+                    link = i[ (i.find(' ') + 1) : (i.rfind(' ')) ]
+                    links[dig] = link
+                abz.pop(0)
+            else:
+                links = {}
+            print(1)
+            print('links', links)
+            print('abz', abz)
+
+            # замена ** на *
             abz2 = []
             c = False
             for i in abz:
@@ -130,27 +144,59 @@ async def text_message(message:types.Message):
                         abz2.append(i)
                     else:
                         abz2.append(i)
+            print(2)
+            print('abz2', abz2)
+                
+            # источники
+            abz3 = []
+            if len(links.keys()) > 0:
+                for i in abz2:
+                    for linknum, link in links.items():
+                        for upnum in range(1, len(links.keys())+1):
+                            i = i.replace(
+                                f'[^{upnum}^][{linknum}]',
+                                f'[({upnum})]({link})**'
+                            )
+                    abz3.append(i)
+            else:
+                abz3 = abz2
+            print(3)
+            print(abz3)
 
-            response = '\n\n'.join(abz2)
+            text = '\n\n'.join(abz3)
 
-            messy = await bot.edit_message_text(
-                text = response,
-                chat_id = message.chat.id,
-                message_id = messy.message_id,
-                disable_web_page_preview=True,
-                parse_mode = ParseMode.MARKDOWN
-            )
+            max_lenght = 4090
+            for x in range(0, len(text), max_lenght):
+                mess = text[x: x + max_lenght]
+                messy = await bot.edit_message_text(
+                    text = mess,
+                    chat_id = message.chat.id,
+                    message_id = messy.message_id,
+                    disable_web_page_preview=True,
+                    parse_mode = ParseMode.MARKDOWN
+                )
 
-            writecontext(message.from_user.id, NEW_PROMPT, response)
+            writecontext(message.from_user.id, NEW_PROMPT, text)
                         
-        except Exception as exc:
-            print(exc)
-            messy = await bot.edit_message_text(
-                text = f'❌ Не удалось сгенерировать ответ.',
-                chat_id = message.chat.id,
-                message_id = messy.message_id,
-                parse_mode = ParseMode.MARKDOWN
-            )
+        except Exception:
+            try:
+                text = 'Не удалось совершить разметку текста...\n\n' + text
+                for x in range(0, len(text), max_lenght):
+                    mess = text[x: x + max_lenght]
+                    messy = await bot.edit_message_text(
+                        text = mess,
+                        chat_id = message.chat.id,
+                        message_id = messy.message_id,
+                        disable_web_page_preview=True
+                    )
+            except Exception as exc:
+                print(exc)
+                messy = await bot.edit_message_text(
+                    text = f'❌ Не удалось сгенерировать ответ.',
+                    chat_id = message.chat.id,
+                    message_id = messy.message_id,
+                    parse_mode = ParseMode.MARKDOWN
+                )
 
 async def main():
     await dp.start_polling(bot, timeout=200)
